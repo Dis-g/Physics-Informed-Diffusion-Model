@@ -9,6 +9,7 @@ from src.denoising_utils import *
 from src.unet_model import Unet3D
 from src.residuals_darcy import ResidualsDarcy
 from src.residuals_mechanics_K import ResidualsMechanics
+from src.residuals_poisson import ResidualsPoisson
 
 name = 'run_1'
 wandb_track = False # set to True to track training with wandb
@@ -47,7 +48,7 @@ self_condition = False
 
 # evaluation params
 test_eval_freq = 500
-sample_freq = 20000
+sample_freq = 2000
 full_sample_freq = 100000
 ema_start = 1000
 ema = EMA(0.99)
@@ -107,6 +108,24 @@ elif gov_eqs == 'mechanics':
     dl_test_level_2 = DataLoader(ds_test_level_2, batch_size = train_batch_size, shuffle=True, generator=torch.Generator(device=device))
     sigmoid_last_channel = True
     train_iterations = 600000
+elif gov_eqs == 'poisson':
+    # [x,y] -> [u], conditioned on known source field f
+    input_dim = 2
+    output_dim = 1
+    pixels_at_boundary = True
+    domain_length = 1.
+    reverse_d1 = False
+    data_paths = ('./data/poisson/train/f_data.csv', './data/poisson/train/u_data.csv')
+    data_paths_valid = ('./data/poisson/valid/f_data.csv', './data/poisson/valid/u_data.csv')
+    bcs = 'none'
+    pixels_per_dim = 64
+    return_optimizer = False
+    return_inequality = False
+    ds = Dataset(data_paths, use_double=use_double)
+    ds_valid = Dataset(data_paths_valid, use_double=use_double)
+    train_batch_size = 32
+    sigmoid_last_channel = False
+    train_iterations = 100000
 else:
     raise ValueError('Unknown governing equations.')
 
@@ -124,6 +143,9 @@ if gov_eqs == 'darcy':
     model = Unet3D(dim = 32, channels = output_dim, sigmoid_last_channel = sigmoid_last_channel).to(device)
 elif gov_eqs == 'mechanics':
     model = Unet3D(dim = 128, channels = output_dim+3+4, out_dim = output_dim, sigmoid_last_channel = sigmoid_last_channel).to(device)
+elif gov_eqs == 'poisson':
+    # input channels: u (noised, output_dim=1) + f (conditioning, 1 channel)
+    model = Unet3D(dim = 32, channels = output_dim+1, out_dim = output_dim, sigmoid_last_channel = sigmoid_last_channel).to(device)
 else:
     raise ValueError('Unknown governing equations, cannot create model.')
 if load_model_flag:
@@ -137,6 +159,8 @@ if gov_eqs == 'darcy':
     residuals = ResidualsDarcy(model = model, fd_acc = fd_acc, pixels_per_dim = pixels_per_dim, pixels_at_boundary = pixels_at_boundary, reverse_d1 = reverse_d1, device = device, bcs = bcs, domain_length = domain_length, residual_grad_guidance= residual_grad_guidance, use_ddim_x0 = use_ddim_x0, ddim_steps = ddim_steps)
 elif gov_eqs == 'mechanics':
     residuals = ResidualsMechanics(model = model, pixels_per_dim = pixels_per_dim, pixels_at_boundary = pixels_at_boundary, device = device, bcs = bcs, no_BC_folder = './data/mechanics/solidspy_k_no_BC/', topopt_eval = topopt_eval, use_ddim_x0 = use_ddim_x0, ddim_steps = ddim_steps)
+elif gov_eqs == 'poisson':
+    residuals = ResidualsPoisson(model = model, fd_acc = fd_acc, pixels_per_dim = pixels_per_dim, pixels_at_boundary = pixels_at_boundary, device = device, domain_length = domain_length, use_ddim_x0 = use_ddim_x0, ddim_steps = ddim_steps)
 else:
     raise ValueError('Unknown residuals mode.')
 
@@ -216,6 +240,19 @@ for iteration in pbar:
                 for channel_idx in range(cond_data.shape[1]):
                     os.makedirs(output_save_dir + f'/training/step_{iteration}/sample_{cur_sample}', exist_ok=True)
                     np.savetxt(output_save_dir + f'/training/step_{iteration}/sample_{cur_sample}/cond_channel_{channel_idx}.csv', cond_data[cur_sample, channel_idx].detach().cpu().numpy(), delimiter=',')
+        elif gov_eqs == 'poisson':
+            cur_batch = next(dl_valid).to(device)
+            if cur_batch.shape[0] < no_samples:
+                no_samples = cur_batch.shape[0]
+            sample_shape = (no_samples, output_dim, pixels_per_dim, pixels_per_dim)
+            cur_batch = cur_batch[torch.randperm(cur_batch.shape[0], device = device)[:no_samples]]
+            conditioning, x_0 = cur_batch[:, :1], cur_batch[:, 1:2]
+            conditioning_input = (conditioning, None, x_0)
+            # save conditioning (f) and ground-truth (u) for later evaluation
+            for cur_sample in range(no_samples):
+                os.makedirs(output_save_dir + f'/training/step_{iteration}/sample_{cur_sample}', exist_ok=True)
+                np.savetxt(output_save_dir + f'/training/step_{iteration}/sample_{cur_sample}/cond_channel_0.csv', conditioning[cur_sample, 0].detach().cpu().numpy(), delimiter=',')
+                np.savetxt(output_save_dir + f'/training/step_{iteration}/sample_{cur_sample}/gt_u.csv', x_0[cur_sample, 0].detach().cpu().numpy(), delimiter=',')
 
         output = diffusion_utils.p_sample_loop(conditioning_input, sample_shape, 
                                 save_output=save_output, surpress_noise=True, 

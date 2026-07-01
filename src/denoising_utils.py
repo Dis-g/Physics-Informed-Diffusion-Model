@@ -417,6 +417,9 @@ class DenoisingDiffusion(nn.Module):
                 sample = True
             else:
                 sample = False
+        if residual_func.gov_eqs == 'poisson':
+            residual_input = (model_input, conditioning)
+            sample = (t[0] == 0)
         out_dict = residual_func.compute_residual(  residual_input,
                                                     reduce='per-batch',
                                                     return_model_out = True,
@@ -628,6 +631,9 @@ class DenoisingDiffusion(nn.Module):
             x_0 = input
         if residual_func.gov_eqs == 'mechanics':            
             conditioning, x_0, bcs = torch.tensor_split(input, (3, 6), dim=1) # vf_arr, strain_energy_density_fem, von_mises_stress, disp_x, disp_y, E_field, BC_node_x, BC_node_y, load_x_img, load_y_img
+        if residual_func.gov_eqs == 'poisson':
+            # input channels: [0] = f (conditioning, known source), [1] = u (to be noised/predicted)
+            conditioning, x_0 = input[:, :1], input[:, 1:2]
 
         # x0 multiplier
         a = extract(self.diff_dict['alphas_bar_sqrt'], t, x_0)
@@ -637,7 +643,7 @@ class DenoisingDiffusion(nn.Module):
         # model input
         x = x_0 * a + e * am1 # previous x_t
 
-        if residual_func.gov_eqs == 'mechanics':
+        if residual_func.gov_eqs in ('mechanics', 'poisson'):
             x = torch.cat((x, conditioning), dim=1)
             
         x = image_to_b_xy_c(x) # we reshape this later to an image in U-net model class but let's be consistent here with the operator model
@@ -655,6 +661,8 @@ class DenoisingDiffusion(nn.Module):
         if residual_func.gov_eqs == 'mechanics':
             vf = conditioning[:,0,0,0]
             residual_input = (model_input, bcs, vf, x_0)
+        if residual_func.gov_eqs == 'poisson':
+            residual_input = (model_input, conditioning)
 
         out_dict = residual_func.compute_residual(residual_input,
                                                   reduce='per-batch', 

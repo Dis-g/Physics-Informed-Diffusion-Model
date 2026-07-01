@@ -30,7 +30,7 @@ config = {
     'fix_axes': True, # Fix axes for visualization
     'save_output': True, # Save model output and sample estimate
     'create_gif': False, # Create GIFs of denoising process for visualization (takes some time)
-    'wandb_track': True # Enable Weights & Biases tracking
+    'wandb_track': False # Enable Weights & Biases tracking
 }
 
 # Derived config

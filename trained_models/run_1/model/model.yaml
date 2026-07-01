@@ -1,0 +1,13 @@
+M_correction: 0
+N_correction: 0
+c_data: 1
+c_ineq: 0
+c_residual: 0
+correction_mode: xt
+ddim_steps: 0
+diff_steps: 100
+fd_acc: 2
+gov_eqs: poisson
+lambda_opt: 0
+residual_grad_guidance: false
+x0_estimation: mean
