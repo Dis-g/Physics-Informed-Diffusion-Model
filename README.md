@@ -1,89 +1,62 @@
-<h1 align="center">Physics-Informed Diffusion Models (ICLR 2025)</h1>
-<h4 align="center">
-<a href="https://arxiv.org/abs/2403.14404"><img src="https://img.shields.io/badge/arXiv-2403.14404-blue" alt="arXiv"></a>
-</h4>
-<div align="center">
-  <span class="author-block">
-    <a>Jan-Hendrik Bastek</a><sup>1</sup>,</span>
-  <span class="author-block">
-    <a>WaiChing Sun</a><sup>2</sup> and</span>
-  <span class="author-block">
-    <a>Dennis M. Kochmann</a><sup>1</sup></span>
-</div>
-<div align="center">
-  <span class="author-block"><sup>1</sup>ETH Zurich,</span>
-  <span class="author-block"><sup>2</sup>Columbia University</span>
-</div>
+# Physics-Informed Diffusion Models — Toy PDE Experiments
 
-$~$
-<p align="center"><img src="circular_samples.gif" width="550"\></p>
+This repository is a fork/adaptation of a **Physics-Informed Diffusion Model** framework for solving partial differential equations (PDEs). It embeds physical constraints (PDE residuals) into the reverse diffusion process, combining score-based generative modeling with numerical PDE solving.
 
-## Introduction & Setup
-We introduce a framework to inform diffusion models of constraints generated samples must adhere to during model training, as presented in [Physics-Informed Diffusion Models](https://arxiv.org/abs/2403.14404).
-To conduct similar studies as those presented in the preprint, start by cloning this repository via
-```
-git clone https://github.com/jhbastek/PhysicsInformedDiffusionModels.git
-```
-We provide three scripts:
+This fork focuses on **toy problem experiments** for the **2D Poisson** and **Helmholtz** equations, built on top of the original codebase's architecture and training pipeline.
 
-`main_toy.py` reproduces the toy study presented in Appendix F.1. It is helpful to understand the implications of the PIDM loss and several variants. Simply change the config file and run the script to reproduce the results or experiment with different parameters.
+> **Note:** This project is adapted from the [PhysicsInformedDiffusionModels](https://github.com/) codebase accompanying Bastek et al., *"Physics-Informed Diffusion Models"* (ICLR 2025).
 
-To reproduce the results for the Darcy flow and topology optimization study, you will first have to download the data and pretrained models from the [ETHZ Research Collection](https://doi.org/10.3929/ethz-b-000674074) and place them (unzipped) as follows:
-```
-.
-├── data
-│   ├── darcy
-│   │   └── ...
-│   └── mechanics
-│       └── ...
-└── trained_models
-    ├── darcy
-    │   └── ...
-    └── mechanics
-        └── ...
-```
+## Overview
 
-On macOS, if standard extraction fails, try using `ditto -x -k <source> <target>`.
+Traditional numerical methods for solving PDEs (Finite Difference, Finite Element, etc.) can be computationally expensive for high-dimensional or geometrically complex domains. This project uses a **score-based diffusion model** (U-Net backbone) constrained by governing physical equations, so that generated solution fields are both statistically plausible *and* physically consistent.
 
-After this, you can run the following scripts:
+**Current status:** the diffusion pipeline has been adapted and validated on 2D Poisson and Helmholtz toy problems, achieving sub-1% relative L2 error against exact/reference solutions.
 
-`main.py` reproduces the Darcy flow and topology optimization study presented in Section 4. Simply adjust the parameters and governing equations in `model.yaml` and run the script to train the models. Note that the name of the run and logging parameters can be directly adjusted in `main.py`, if necessary.
+## Repository Structure
 
-`sample.py` evaluates trained models. Provide the `directory_path`, `name`, and `load_model_step` of the model to evaluate and run the script. Note that the full evaluation of the in- and out-of-distribution test sets for the topology optimization study may take some time.
+### `src/` — Core Codebase
+* **Model Architecture & Diffusion**
+    * `unet_model.py` — U-Net architecture used for noise prediction.
+    * `denoising_utils.py`, `denoising_toy_utils.py` — Forward (noising) and reverse (denoising) diffusion process utilities.
+* **Physics Constraints (Residuals)**
+    * `residuals_poisson.py` — Physics-informed loss for Poisson's equation ($\nabla^2 u = f$).
+    * `residuals_darcy.py` — Residuals for Darcy flow.
+    * `residuals_mechanics_K.py` — Residuals for solid mechanics.
+* **Data Processing & Generation**
+    * `poisson_data_generation.py`, `darcy_data_generation.py` — Scripts to generate/preprocess training data.
+    * `data_utils.py` — Data loading, batching, and normalization utilities.
+* **Helper Utilities**
+    * `grad_utils.py` — Automatic differentiation / gradient utilities for the physics loss.
+    * `helper_plot.py` — Visualization tools for residual curves, error bars, and field comparisons.
 
-## Dependencies
+### `run_1/` — Results & Evaluation
+Outputs from training and inference runs:
+* `residual_curve.png` — Physics-informed loss over training.
+* `error_bar_chart.png` — Absolute/relative error bounds vs. exact solutions.
+* `comparison_sample_*.png` — Predicted vs. exact field comparisons.
+* `custom_inference/` — Step-by-step denoising sequence visualizations and specific test cases (e.g., `point_charge_inference.png`).
 
-The framework was developed and tested on Python 3.11 using CUDA 12.0.
-To run the toy model, the following packages are required:
-Package | Version (>=)
-:-|:-
-`pytorch`                   | `2.0.1`
-`tqdm`                      | `4.65.0`
-`matplotlib`                | `3.7.2`
-`imageio`                   | `2.28.1`
-`einops`                    | `0.6.1`
-`wandb` (optional)          | `0.15.2`
+## What This Solves
 
-To run the Darcy flow and topology optimization study, the following additional packages are required:
-Package | Version (>=)
-:-|:-
-`findiff`                   | `0.10.0`
-`solidspy`                  | `1.0.16`
-`pandas`                    | `2.1.3`
-`einops-exts`               | `0.0.4`
-`rotary_embedding_torch`    | `0.2.3`
-`torchvision`               | `0.15.2`
-`opencv`                    | `4.9.0.80`
+Both problems are posed on a 2D domain and solved via reverse diffusion instead of a classical solver:
 
-## Citation
+- **Poisson's equation:** $\nabla^2 u = f$ — recovering the field $u$ (e.g. an electrostatic potential) given a source term $f$ (e.g. a point charge distribution). See `run_1/custom_inference/point_charge_inference.png` for a worked example.
+- **Helmholtz equation:** the frequency-domain wave equation, testing the model on oscillatory solution fields rather than the purely elliptic Poisson case.
 
-If this code is useful for your research, please consider citing
-```bibtex
-@inproceedings{
-bastek2025physicsinformed,
-title={Physics-Informed Diffusion Models},
-author={Jan-Hendrik Bastek and WaiChing Sun and Dennis Kochmann},
-booktitle={The Thirteenth International Conference on Learning Representations},
-year={2025},
-url={https://openreview.net/forum?id=tpYeermigp}
-}
+The model is trained to denoise a random field into a valid solution while the PDE residual is enforced at each reverse diffusion step, so the output isn't just visually plausible — it's checked against the governing equation.
+
+## What Was Adapted
+
+Starting from the original codebase's architecture and training loop, the main adaptation work for this toy setup was:
+- Wiring up `residuals_poisson.py` and the corresponding data generation for the specific Poisson test case (point-charge source).
+- Extending/validating the pipeline on the Helmholtz case.
+- Evaluation: comparing predicted vs. exact fields and tracking relative L2 error through the denoising trajectory.
+
+## Results
+
+On the 2D Poisson and Helmholtz toy problems, the model achieves **sub-1% relative L2 error** compared to reference solutions. See `run_1/error_bar_chart.png` and `run_1/comparison_sample_*.png` for quantitative and qualitative results, and `run_1/custom_inference/` for step-by-step denoising visualizations.
+
+## Acknowledgments & Attribution
+
+This repository builds on the codebase accompanying:
+> Bastek, J.-H., et al. *"Physics-Informed Diffusion Models."* ICLR 2025.
